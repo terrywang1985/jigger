@@ -1,0 +1,1 @@
+python -m PyInstaller --onefile --noconsole --add-data "spritesheet.png;." client.py
