@@ -12,6 +12,8 @@ import json
 import time
 import sys, os
 from pynput import mouse, keyboard
+import requests  # 添加requests库用于HTTP请求
+import uuid
 
 import os
 import sys
@@ -19,9 +21,63 @@ import threading
 import logging
 from pyupdater.client import Client
 
+# 平台API地址
+PLATFORM_API = "http://localhost:8080"  # 假设API网关运行在本地8080端口
+
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+class AuthManager:
+    def __init__(self):
+        self.token = None
+        self.openid = None
+        self.app_id = "desktop_app"  # 应用标识
+    
+    def send_sms_code(self, country_code, phone, device_id=""):
+        """发送短信验证码"""
+        url = f"{PLATFORM_API}/auth/phone/send-code"
+        data = {
+            "country_code": country_code,
+            "phone": phone,
+            "app_id": self.app_id,
+            "device_id": device_id
+        }
+        
+        try:
+            print(f"Sending SMS code to {country_code}{phone}, {url}")
+            response = requests.post(url, json=data)
+            if response.status_code == 200:
+                return True, "验证码已发送"
+            else:
+                error_msg = response.json().get("error", "发送验证码失败")
+                return False, error_msg
+        except Exception as e:
+            return False, f"网络错误: {str(e)}"
+    
+    def phone_login(self, country_code, phone, code, device_id=""):
+        """手机号登录"""
+        url = f"{PLATFORM_API}/auth/phone/login"
+        data = {
+            "country_code": country_code,
+            "phone": phone,
+            "code": code,
+            "app_id": self.app_id,
+            "device_id": device_id
+        }
+        
+        try:
+            response = requests.post(url, json=data)
+            if response.status_code == 200:
+                result = response.json()
+                self.token = result.get("token")
+                self.openid = result.get("openid")
+                return True, "登录成功", result
+            else:
+                error_msg = response.json().get("error", "登录失败")
+                return False, error_msg, None
+        except Exception as e:
+            return False, f"网络错误: {str(e)}", None
 
 class AutoUpdateClient:
     def __init__(self):
@@ -677,19 +733,8 @@ class HomePage:
         
         # 检查是否登录
         if not self.is_logged_in():
-            ttk.Label(self.content_frame, text="请先登录才能查看个人信息", 
-                     background='#ecf0f1').pack(pady=20)
-            
-            btn_frame = ttk.Frame(self.content_frame, style='Content.TFrame')
-            btn_frame.pack(pady=10)
-            
-            login_btn = ttk.Button(btn_frame, text="登录", style='Action.TButton',
-                                  command=self.show_login)
-            login_btn.pack(side=tk.LEFT, padx=10)
-            
-            register_btn = ttk.Button(btn_frame, text="注册", style='Action.TButton',
-                                    command=self.show_register)
-            register_btn.pack(side=tk.LEFT, padx=10)
+            # 显示手机号登录界面
+            self.show_phone_login()
             return
         
         # 显示用户信息
@@ -708,7 +753,136 @@ class HomePage:
                      font=('Arial', 12, 'bold')).grid(row=i, column=0, sticky=tk.W, pady=5, padx=10)
             ttk.Label(info_frame, text=value, background='#ecf0f1').grid(row=i, column=1, sticky=tk.W, pady=5)
     
+    def show_phone_login(self):
+        """显示手机号登录界面"""
+        # 创建认证管理器
+        self.auth = AuthManager()
+        
+        # 标题
+        title_label = ttk.Label(self.content_frame, text="手机号登录/注册", 
+                               font=('Arial', 16, 'bold'), background='#ecf0f1')
+        title_label.pack(pady=10)
+        
+        # 国家代码和手机号输入
+        phone_frame = ttk.Frame(self.content_frame, style='Content.TFrame')
+        phone_frame.pack(fill=tk.X, pady=10, padx=20)
+        
+        ttk.Label(phone_frame, text="国家代码:", background='#ecf0f1').pack(side=tk.LEFT)
+        self.country_code = ttk.Combobox(phone_frame, width=5, values=["+86", "+1", "+81", "+82", "+852", "+853", "+886"])
+        self.country_code.set("+86")
+        self.country_code.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(phone_frame, text="手机号:", background='#ecf0f1').pack(side=tk.LEFT, padx=(10, 0))
+        self.phone = ttk.Entry(phone_frame, width=15)
+        self.phone.pack(side=tk.LEFT, padx=5)
+        
+        # 发送验证码按钮
+        self.send_code_btn = ttk.Button(phone_frame, text="发送验证码", command=self.send_verification_code)
+        self.send_code_btn.pack(side=tk.LEFT, padx=5)
+        
+        # 验证码输入
+        code_frame = ttk.Frame(self.content_frame, style='Content.TFrame')
+        code_frame.pack(fill=tk.X, pady=10, padx=20)
+        
+        ttk.Label(code_frame, text="验证码:", background='#ecf0f1').pack(side=tk.LEFT)
+        self.code = ttk.Entry(code_frame, width=10)
+        self.code.pack(side=tk.LEFT, padx=5)
+        
+        # 设备ID（可选）
+        device_frame = ttk.Frame(self.content_frame, style='Content.TFrame')
+        device_frame.pack(fill=tk.X, pady=10, padx=20)
+        
+        ttk.Label(device_frame, text="设备ID:", background='#ecf0f1').pack(side=tk.LEFT)
+        self.device_id = ttk.Entry(device_frame, width=20)
+        self.device_id.pack(side=tk.LEFT, padx=5)
+        # 生成随机设备ID
+        self.device_id.insert(0, str(uuid.uuid4())[:8])
+        
+        # 登录按钮
+        login_btn = ttk.Button(self.content_frame, text="登录/注册", command=self.do_login)
+        login_btn.pack(pady=20)
+        
+        # 状态标签
+        self.status_label = ttk.Label(self.content_frame, text="", background='#ecf0f1', foreground='#e74c3c')
+        self.status_label.pack(pady=10)
+        
+        # 倒计时相关变量
+        self.countdown = 0
+        self.countdown_timer = None
+    
+    def send_verification_code(self):
+        """发送验证码"""
+        country_code = self.country_code.get().strip()
+        phone = self.phone.get().strip()
+        device_id = self.device_id.get().strip()
+        
+        if not country_code or not phone:
+            self.status_label.config(text="请填写国家代码和手机号")
+            return
+        
+        # 禁用发送按钮，开始倒计时
+        self.send_code_btn.config(state="disabled")
+        self.countdown = 60
+        self.update_countdown()
+        
+        # 在后台线程中发送验证码
+        threading.Thread(target=self._send_code_thread, args=(country_code, phone, device_id), daemon=True).start()
+    
+    def _send_code_thread(self, country_code, phone, device_id):
+        """发送验证码的线程函数"""
+        success, message = self.auth.send_sms_code(country_code, phone, device_id)
+        # 在主线程中更新UI
+        self.window.after(0, lambda: self.status_label.config(text=message))
+    
+    def update_countdown(self):
+        """更新倒计时"""
+        if self.countdown > 0:
+            self.send_code_btn.config(text=f"重新发送({self.countdown})")
+            self.countdown -= 1
+            self.countdown_timer = self.window.after(1000, self.update_countdown)
+        else:
+            self.send_code_btn.config(text="发送验证码", state="normal")
+    
+    def do_login(self):
+        """执行登录"""
+        country_code = self.country_code.get().strip()
+        phone = self.phone.get().strip()
+        code = self.code.get().strip()
+        device_id = self.device_id.get().strip()
+        
+        if not all([country_code, phone, code]):
+            self.status_label.config(text="请填写完整信息")
+            return
+        
+        # 在后台线程中执行登录
+        threading.Thread(target=self._login_thread, args=(country_code, phone, code, device_id), daemon=True).start()
+    
+    def _login_thread(self, country_code, phone, code, device_id):
+        """登录的线程函数"""
+        success, message, result = self.auth.phone_login(country_code, phone, code, device_id)
+        
+        # 在主线程中更新UI
+        if success:
+            self.window.after(0, lambda: self.on_login_success(result))
+        else:
+            self.window.after(0, lambda: self.status_label.config(text=message))
+    
+    def on_login_success(self, result):
+        """登录成功处理"""
+        self.status_label.config(text="登录成功!", foreground="#2ecc71")
+        
+        # 保存token和openid
+        token = result.get("token")
+        openid = result.get("openid")
+        
+        # 可以在这里启动主应用程序
+        messagebox.showinfo("登录成功", f"欢迎使用桌面宠物!\n您的OpenID: {openid}")
+        
+        # 刷新个人信息页面
+        self.show_profile()
+    
     def show_login(self):
+        # 原有的用户名密码登录界面保持不变
         login_window = tk.Toplevel(self.window)
         login_window.title("登录")
         login_window.geometry("400x200")
@@ -734,17 +908,32 @@ class HomePage:
         btn_frame.grid(row=2, column=0, columnspan=2, pady=15)
         
         login_btn = ttk.Button(btn_frame, text="登录", style='Action.TButton',
-                              command=lambda: self.do_login(
+                              command=lambda: self.do_login_username(
                                   username_entry.get(), password_entry.get(), login_window))
         login_btn.pack(side=tk.LEFT, padx=5)
         
-        register_btn = ttk.Button(btn_frame, text="注册", style='Action.TButton',
-                                 command=lambda: self.show_register_from_login(login_window))
-        register_btn.pack(side=tk.LEFT, padx=5)
+        phone_login_btn = ttk.Button(btn_frame, text="手机号登录", style='Action.TButton',
+                                    command=lambda: self.show_phone_login_from_login(login_window))
+        phone_login_btn.pack(side=tk.LEFT, padx=5)
         
         cancel_btn = ttk.Button(btn_frame, text="取消", style='Action.TButton',
                                command=login_window.destroy)
         cancel_btn.pack(side=tk.LEFT, padx=5)
+    
+    def do_login_username(self, username, password, window):
+        if not username or not password:
+            messagebox.showerror("错误", "用户名和密码不能为空")
+            return
+        
+        # 这里应该实现实际的登录逻辑
+        window.destroy()
+        messagebox.showinfo("成功", "登录成功!")
+        self.show_profile()
+    
+    def show_phone_login_from_login(self, login_window):
+        login_window.destroy()
+        self.clear_content()
+        self.show_phone_login()
     
     def show_register(self):
         register_window = tk.Toplevel(self.window)
@@ -823,7 +1012,7 @@ class HomePage:
 
 
 # ----------------- Client -----------------
-class Client:
+class JiggerClient:
     def __init__(self, sprite_path):
         self.sprite_path = sprite_path
         self.players = {}
@@ -896,4 +1085,4 @@ class Client:
 
 if __name__=="__main__":
     sprite_path = resource_path("spritesheet.png")
-    Client(sprite_path)
+    JiggerClient(sprite_path)

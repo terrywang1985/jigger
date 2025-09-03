@@ -1,0 +1,20 @@
+{
+  "config_dir": "E:\\jigger\\.pyupdater",
+  "filename": "E:\\jigger\\.pyupdater\\config.pyu",
+  "count": 0,
+  "app_config": {
+    "APP_NAME": "jigger",
+    "CLIENT_CONFIG_PATH": [
+      "client_config.py"
+    ],
+    "COMPANY_NAME": "wuyun",
+    "PLUGIN_CONFIGS": {},
+    "UPDATE_PATCHES": true,
+    "MAX_DOWNLOAD_RETRIES": 3,
+    "HTTP_TIMEOUT": 30,
+    "UPDATE_URLS": [
+      "https://3qk7.com"
+    ],
+    "DATA_DIR": "E:\\jigger"
+  }
+}
